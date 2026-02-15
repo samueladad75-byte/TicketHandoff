@@ -1,0 +1,14 @@
+{
+  "name": "Access/Permissions Issue",
+  "description": "For users unable to access systems or lacking necessary permissions",
+  "category": "Access",
+  "checklist_items": [
+    { "text": "Verified user account is active", "checked": false },
+    { "text": "Confirmed user in correct security groups", "checked": false },
+    { "text": "Checked for recent permission changes", "checked": false },
+    { "text": "Tested access from different device", "checked": false },
+    { "text": "Reviewed access logs", "checked": false },
+    { "text": "Confirmed manager approval on file", "checked": false }
+  ],
+  "l2_team": "Identity & Access Management"
+}

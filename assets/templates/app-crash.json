@@ -1,0 +1,15 @@
+{
+  "name": "Application Crash",
+  "description": "For applications that crash on startup or during use",
+  "category": "App",
+  "checklist_items": [
+    { "text": "Reproduced the crash", "checked": false },
+    { "text": "Checked application logs", "checked": false },
+    { "text": "Verified system requirements met", "checked": false },
+    { "text": "Tested with different user account", "checked": false },
+    { "text": "Disabled browser extensions/plugins", "checked": false },
+    { "text": "Cleared cache and cookies", "checked": false },
+    { "text": "Reinstalled application", "checked": false }
+  ],
+  "l2_team": "Application Support Team"
+}

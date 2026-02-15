@@ -1,0 +1,14 @@
+{
+  "name": "Network/VPN Issues",
+  "description": "For users unable to connect to VPN or experiencing network connectivity problems",
+  "category": "Network",
+  "checklist_items": [
+    { "text": "Restarted VPN client", "checked": false },
+    { "text": "Verified DNS settings", "checked": false },
+    { "text": "Tested on different network", "checked": false },
+    { "text": "Confirmed credentials valid", "checked": false },
+    { "text": "Checked firewall settings", "checked": false },
+    { "text": "Reviewed VPN logs", "checked": false }
+  ],
+  "l2_team": "Network Team"
+}
