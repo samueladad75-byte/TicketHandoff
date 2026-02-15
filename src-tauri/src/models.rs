@@ -43,6 +43,7 @@ pub struct Escalation {
 pub enum EscalationStatus {
     Draft,
     Posted,
+    PostedWithErrors,
     PostFailed,
 }
 
@@ -52,6 +53,7 @@ impl EscalationStatus {
         match self {
             EscalationStatus::Draft => "draft",
             EscalationStatus::Posted => "posted",
+            EscalationStatus::PostedWithErrors => "posted_with_errors",
             EscalationStatus::PostFailed => "post_failed",
         }
     }
@@ -59,6 +61,7 @@ impl EscalationStatus {
     pub fn from_str(s: &str) -> Self {
         match s {
             "posted" => EscalationStatus::Posted,
+            "posted_with_errors" => EscalationStatus::PostedWithErrors,
             "post_failed" => EscalationStatus::PostFailed,
             _ => EscalationStatus::Draft,
         }

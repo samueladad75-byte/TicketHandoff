@@ -1,7 +1,7 @@
 use crate::commands::settings::get_jira_client;
 use crate::db;
 use crate::error::{AppError, AppResult};
-use crate::models::{Escalation, EscalationInput, EscalationStatus, EscalationSummary};
+use crate::models::{ChecklistItem, Escalation, EscalationInput, EscalationStatus, EscalationSummary};
 use crate::services::template_engine;
 use tauri::AppHandle;
 
@@ -64,7 +64,8 @@ fn save_escalation_impl(input: EscalationInput) -> AppResult<i64> {
             serde_json::to_string(&serde_json::json!({
                 "ticket_id": input.ticket_id,
                 "template_id": input.template_id,
-            })).unwrap_or_default(),
+            }))
+            .map_err(|e| AppError::Validation(format!("Failed to serialize audit log: {}", e)))?,
         ],
     )?;
 
@@ -81,7 +82,11 @@ fn get_escalation_impl(id: i64) -> AppResult<Escalation> {
         [id],
         |row| {
             let checklist_json: String = row.get(4)?;
-            let checklist = serde_json::from_str(&checklist_json).unwrap_or_default();
+            let checklist: Vec<ChecklistItem> = serde_json::from_str(&checklist_json)
+                .map_err(|e| {
+                    log::error!("Corrupted checklist data for escalation {}: {}", id, e);
+                    rusqlite::Error::InvalidQuery
+                })?;
             let status_str: String = row.get(10)?;
 
             Ok(Escalation {
@@ -157,7 +162,11 @@ fn render_markdown_impl(input: EscalationInput) -> AppResult<String> {
 
         stmt.query_row([template_id], |row| {
             let checklist_json: String = row.get(4)?;
-            let checklist_items = serde_json::from_str(&checklist_json).unwrap_or_default();
+            let checklist_items: Vec<ChecklistItem> = serde_json::from_str(&checklist_json)
+                .map_err(|e| {
+                    log::error!("Corrupted template checklist data for template {}: {}", template_id, e);
+                    rusqlite::Error::InvalidQuery
+                })?;
 
             Ok(crate::models::Template {
                 id: row.get(0)?,
@@ -360,7 +369,8 @@ fn write_audit_log(escalation_id: i64, action: &str, details: &serde_json::Value
         rusqlite::params![
             escalation_id,
             action,
-            serde_json::to_string(details).unwrap_or_default(),
+            serde_json::to_string(details)
+                .map_err(|e| AppError::Validation(format!("Failed to serialize audit log: {}", e)))?,
         ],
     )?;
 

@@ -1,5 +1,6 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{ChecklistItem, LLMSummaryResult};
+use crate::services::retry::retry_with_backoff;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -28,11 +29,23 @@ impl OllamaClient {
 
         match self.client.get(&url).send().await {
             Ok(response) => Ok(response.status().is_success()),
-            Err(_) => Ok(false),
+            Err(e) if e.is_timeout() => Ok(false), // Ollama not responding
+            Err(e) if e.is_connect() => Ok(false), // Cannot reach endpoint
+            Err(e) => {
+                // Configuration error - invalid URL, SSL issues, etc.
+                Err(AppError::Ollama(format!(
+                    "Invalid Ollama configuration: {}. Check endpoint URL in settings.",
+                    e
+                )))
+            }
         }
     }
 
     pub async fn summarize(&self, checklist: &[ChecklistItem], problem: &str) -> AppResult<LLMSummaryResult> {
+        retry_with_backoff(|| self.summarize_impl(checklist, problem)).await
+    }
+
+    async fn summarize_impl(&self, checklist: &[ChecklistItem], problem: &str) -> AppResult<LLMSummaryResult> {
         // Build the prompt
         let prompt = self.build_prompt(checklist, problem);
 

@@ -38,7 +38,9 @@ security-framework = "2.11"
 r2d2 = "0.8"
 r2d2_sqlite = "0.25"
 tokio-retry = "0.3"
-tokio = { version = "1", features = ["fs", "io-util"] }
+tokio = { version = "1", features = ["fs", "io-util", "time"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 pulldown-cmark = "0.12"
+rand = "0.8"
+log = "0.4"
 

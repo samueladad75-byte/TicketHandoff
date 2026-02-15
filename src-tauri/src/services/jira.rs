@@ -1,5 +1,6 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{JiraComment, JiraTicket, JiraUser};
+use crate::services::retry::retry_with_backoff;
 use crate::services::ticket_system::TicketSystemClient;
 use async_trait::async_trait;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
@@ -11,20 +12,28 @@ pub struct JiraClient {
     base_url: String,
     email: String,
     api_token: String,
-    client: reqwest::Client,
+    default_client: reqwest::Client,
+    upload_client: reqwest::Client,
 }
 
 impl JiraClient {
     pub fn new(base_url: String, email: String, api_token: String) -> AppResult<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
+        // Standard operations: 10s timeout
+        let default_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()?;
+
+        // File uploads: 5 minute timeout
+        let upload_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(300))
             .build()?;
 
         Ok(Self {
             base_url,
             email,
             api_token,
-            client,
+            default_client,
+            upload_client,
         })
     }
 
@@ -35,13 +44,17 @@ impl JiraClient {
     }
 
     pub async fn fetch_issue(&self, key: &str) -> AppResult<JiraTicket> {
+        retry_with_backoff(|| self.fetch_issue_impl(key)).await
+    }
+
+    async fn fetch_issue_impl(&self, key: &str) -> AppResult<JiraTicket> {
         let url = format!(
             "{}/rest/api/3/issue/{}?fields=summary,description,status,reporter,assignee,comment",
             self.base_url, key
         );
 
         let response = self
-            .client
+            .default_client
             .get(&url)
             .header(AUTHORIZATION, self.auth_header())
             .header(CONTENT_TYPE, "application/json")
@@ -97,6 +110,10 @@ impl JiraClient {
     }
 
     pub async fn post_comment(&self, key: &str, body: &str) -> AppResult<()> {
+        retry_with_backoff(|| self.post_comment_impl(key, body)).await
+    }
+
+    async fn post_comment_impl(&self, key: &str, body: &str) -> AppResult<()> {
         let url = format!("{}/rest/api/3/issue/{}/comment", self.base_url, key);
 
         // Wrap plain text in minimal ADF structure
@@ -115,7 +132,7 @@ impl JiraClient {
         });
 
         let response = self
-            .client
+            .default_client
             .post(&url)
             .header(AUTHORIZATION, self.auth_header())
             .header(CONTENT_TYPE, "application/json")
@@ -137,16 +154,15 @@ impl JiraClient {
     }
 
     pub async fn attach_file(&self, key: &str, file_path: &Path) -> AppResult<()> {
-        // Validate file exists
-        if !file_path.exists() {
-            return Err(AppError::File(format!(
-                "File not found: {}",
-                file_path.display()
-            )));
-        }
+        retry_with_backoff(|| self.attach_file_impl(key, file_path)).await
+    }
 
-        // Validate file size (100MB limit)
-        let metadata = std::fs::metadata(file_path)?;
+    async fn attach_file_impl(&self, key: &str, file_path: &Path) -> AppResult<()> {
+        // Validate file exists and size
+        let metadata = tokio::fs::metadata(file_path)
+            .await
+            .map_err(|_| AppError::File(format!("File not found: {}", file_path.display())))?;
+
         let size_mb = metadata.len() / (1024 * 1024);
         if size_mb > 100 {
             return Err(AppError::File(format!(
@@ -157,14 +173,14 @@ impl JiraClient {
 
         let url = format!("{}/rest/api/3/issue/{}/attachments", self.base_url, key);
 
-        // Read file contents
-        let file_bytes = std::fs::read(file_path)?;
+        // Read file asynchronously (still better than blocking I/O)
+        let file_bytes = tokio::fs::read(file_path).await?;
+
         let file_name = file_path
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| AppError::File("Invalid file name".to_string()))?;
 
-        // Create multipart form
         let part = reqwest::multipart::Part::bytes(file_bytes)
             .file_name(file_name.to_string())
             .mime_str("application/octet-stream")
@@ -173,7 +189,7 @@ impl JiraClient {
         let form = reqwest::multipart::Form::new().part("file", part);
 
         let response = self
-            .client
+            .upload_client // Use upload client with 300s timeout
             .post(&url)
             .header(AUTHORIZATION, self.auth_header())
             .header("X-Atlassian-Token", "no-check") // Required by Jira
@@ -203,7 +219,7 @@ impl JiraClient {
         let url = format!("{}/rest/api/3/myself", self.base_url);
 
         let response = self
-            .client
+            .default_client
             .get(&url)
             .header(AUTHORIZATION, self.auth_header())
             .header(CONTENT_TYPE, "application/json")
