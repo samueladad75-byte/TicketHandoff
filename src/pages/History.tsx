@@ -1,11 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useContext } from 'react';
 import { useNavigate } from 'react-router';
+import { ToastContext } from '../contexts/ToastContext';
 import { useEscalations } from '../hooks/useEscalations';
 import { getApiConfig, retryPostEscalation } from '../lib/tauri';
 import type { EscalationSummary } from '../types';
 
 export default function History() {
   const navigate = useNavigate();
+  const toastContext = useContext(ToastContext);
+
+  if (!toastContext) {
+    throw new Error('ToastContext not found');
+  }
+
+  const { showToast, showConfirm } = toastContext;
+
   const [escalations, setEscalations] = useState<EscalationSummary[]>([]);
   const [jiraBaseUrl, setJiraBaseUrl] = useState<string>('');
   const [retrying, setRetrying] = useState<number | null>(null);
@@ -33,9 +42,11 @@ export default function History() {
   };
 
   const handleDelete = async (id: number) => {
-    if (confirm('Are you sure you want to delete this escalation?')) {
+    const confirmed = await showConfirm('Are you sure you want to delete this escalation?');
+    if (confirmed) {
       const success = await deleteEscalation(id);
       if (success) {
+        showToast('Escalation deleted successfully', 'success');
         loadEscalations();
       }
     }
@@ -46,11 +57,11 @@ export default function History() {
     try {
       // Retry with no file attachments (files would need to be re-selected)
       await retryPostEscalation(id, []);
-      alert('Successfully posted to Jira!');
+      showToast('Successfully posted to Jira!', 'success');
       loadEscalations();
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      alert('Retry failed: ' + errorMsg);
+      showToast('Retry failed: ' + errorMsg, 'error');
     } finally {
       setRetrying(null);
     }

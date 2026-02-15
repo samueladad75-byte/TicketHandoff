@@ -1,6 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useContext } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useForm } from 'react-hook-form';
+import { useDebounce } from 'use-debounce';
+import { ToastContext } from '../contexts/ToastContext';
 import TemplateSelector from '../components/TemplateSelector';
 import ChecklistUI from '../components/ChecklistUI';
 import MarkdownPreview from '../components/MarkdownPreview';
@@ -24,6 +26,13 @@ export default function NewEscalation() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const escalationId = searchParams.get('id');
+  const toastContext = useContext(ToastContext);
+
+  if (!toastContext) {
+    throw new Error('ToastContext not found');
+  }
+
+  const { showToast } = toastContext;
 
   const { register, watch, setValue } = useForm<FormData>({
     defaultValues: {
@@ -110,7 +119,7 @@ export default function NewEscalation() {
   // Generate AI summary
   const handleGenerateSummary = async () => {
     if (!formData.problemSummary || checklist.length === 0) {
-      alert('Please add a problem summary and at least one checklist item before generating a summary.');
+      showToast('Please add a problem summary and at least one checklist item before generating a summary.', 'warning');
       return;
     }
 
@@ -151,7 +160,7 @@ export default function NewEscalation() {
       }
     } catch (error) {
       console.error('Failed to select files:', error);
-      alert('Failed to select files: ' + error);
+      showToast('Failed to select files: ' + error, 'error');
     }
   };
 
@@ -195,7 +204,7 @@ export default function NewEscalation() {
       setShowReviewModal(true);
     } catch (error) {
       console.error('Failed to generate markdown:', error);
-      alert('Failed to generate preview: ' + error);
+      showToast('Failed to generate preview: ' + error, 'error');
     } finally {
       setGenerating(false);
     }
@@ -241,28 +250,32 @@ export default function NewEscalation() {
     }
   };
 
-  // Real-time markdown preview (debounced)
+  // Debounce form data and checklist for preview generation
+  const [debouncedFormData] = useDebounce(formData, 300);
+  const [debouncedChecklist] = useDebounce(checklist, 300);
+
+  // Real-time markdown preview (debounced to avoid re-rendering on every keystroke)
   const livePreview = useMemo(() => {
-    if (!formData.ticketId) return '';
+    if (!debouncedFormData.ticketId) return '';
     const input: EscalationInput = {
-      ticketId: formData.ticketId,
-      templateId: formData.templateId,
-      problemSummary: formData.problemSummary,
-      checklist,
-      currentStatus: formData.currentStatus,
-      nextSteps: formData.nextSteps,
+      ticketId: debouncedFormData.ticketId,
+      templateId: debouncedFormData.templateId,
+      problemSummary: debouncedFormData.problemSummary,
+      checklist: debouncedChecklist,
+      currentStatus: debouncedFormData.currentStatus,
+      nextSteps: debouncedFormData.nextSteps,
       llmSummary: llmSummary || null,
       llmConfidence: llmConfidence || null,
     };
     // Generate markdown synchronously for preview (will be replaced with actual render)
-    let preview = `## Escalation: ${input.ticketId}\n\n### Problem Summary\n${input.problemSummary}\n\n### Troubleshooting Steps\n${checklist.map((item) => `- [${item.checked ? 'x' : ' '}] ${item.text}`).join('\n')}\n\n### Current Status\n${input.currentStatus}\n\n### Next Steps\n${input.nextSteps}`;
+    let preview = `## Escalation: ${input.ticketId}\n\n### Problem Summary\n${input.problemSummary}\n\n### Troubleshooting Steps\n${debouncedChecklist.map((item) => `- [${item.checked ? 'x' : ' '}] ${item.text}`).join('\n')}\n\n### Current Status\n${input.currentStatus}\n\n### Next Steps\n${input.nextSteps}`;
 
     if (llmSummary) {
       preview += `\n\n### AI Summary\n${llmSummary}\n(Confidence: ${llmConfidence})`;
     }
 
     return preview;
-  }, [formData, checklist, llmSummary, llmConfidence]);
+  }, [debouncedFormData, debouncedChecklist, llmSummary, llmConfidence]);
 
   return (
     <div className="max-w-7xl mx-auto">

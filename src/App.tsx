@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router';
+import { ToastProvider } from './contexts/ToastContext';
 import Home from './pages/Home';
 import NewEscalation from './pages/NewEscalation';
 import History from './pages/History';
@@ -7,7 +8,8 @@ import './styles/main.css';
 
 function App() {
   return (
-    <BrowserRouter>
+    <ToastProvider>
+      <BrowserRouter>
       <div className="min-h-screen bg-gray-50">
         <nav className="bg-white shadow-sm border-b">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -39,6 +41,7 @@ function App() {
         </main>
       </div>
     </BrowserRouter>
+    </ToastProvider>
   );
 }
 
