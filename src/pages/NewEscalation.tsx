@@ -5,8 +5,10 @@ import TemplateSelector from '../components/TemplateSelector';
 import ChecklistUI from '../components/ChecklistUI';
 import MarkdownPreview from '../components/MarkdownPreview';
 import ReviewModal from '../components/ReviewModal';
+import ConfidenceBadge from '../components/ConfidenceBadge';
 import { useEscalations } from '../hooks/useEscalations';
 import { useTicketData } from '../hooks/useTicketData';
+import { useLLMSummary } from '../hooks/useLLMSummary';
 import { renderMarkdown } from '../lib/tauri';
 import type { Template, EscalationInput, ChecklistItem } from '../types';
 
@@ -37,9 +39,14 @@ export default function NewEscalation() {
   const [markdown, setMarkdown] = useState('');
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [llmSummary, setLlmSummary] = useState<string>('');
+  const [llmConfidence, setLlmConfidence] = useState<string>('');
+  const [llmConfidenceReason, setLlmConfidenceReason] = useState<string>('');
+  const [showLlmSection, setShowLlmSection] = useState(false);
 
   const { saveEscalation, getEscalation } = useEscalations();
   const { ticket, loading: fetchingTicket, error: ticketError, fetch: fetchTicket } = useTicketData();
+  const { loading: generatingSummary, error: llmError, generate: generateSummary } = useLLMSummary();
 
   const formData = watch();
 
@@ -74,6 +81,22 @@ export default function NewEscalation() {
     }
   };
 
+  // Generate AI summary
+  const handleGenerateSummary = async () => {
+    if (!formData.problemSummary || checklist.length === 0) {
+      alert('Please add a problem summary and at least one checklist item before generating a summary.');
+      return;
+    }
+
+    const result = await generateSummary(checklist, formData.problemSummary);
+    if (result) {
+      setLlmSummary(result.summary);
+      setLlmConfidence(result.confidence);
+      setLlmConfidenceReason(result.confidenceReason);
+      setShowLlmSection(true);
+    }
+  };
+
   // Update checklist when template changes
   const handleTemplateChange = (template: Template | null) => {
     setValue('templateId', template?.id || null);
@@ -96,8 +119,8 @@ export default function NewEscalation() {
         checklist,
         currentStatus: formData.currentStatus,
         nextSteps: formData.nextSteps,
-        llmSummary: null,
-        llmConfidence: null,
+        llmSummary: llmSummary || null,
+        llmConfidence: llmConfidence || null,
       };
       const result = await renderMarkdown(input);
       setMarkdown(result);
@@ -118,8 +141,8 @@ export default function NewEscalation() {
       checklist,
       currentStatus: formData.currentStatus,
       nextSteps: formData.nextSteps,
-      llmSummary: null,
-      llmConfidence: null,
+      llmSummary: llmSummary || null,
+      llmConfidence: llmConfidence || null,
     };
 
     const id = await saveEscalation(input);
@@ -139,12 +162,18 @@ export default function NewEscalation() {
       checklist,
       currentStatus: formData.currentStatus,
       nextSteps: formData.nextSteps,
-      llmSummary: null,
-      llmConfidence: null,
+      llmSummary: llmSummary || null,
+      llmConfidence: llmConfidence || null,
     };
     // Generate markdown synchronously for preview (will be replaced with actual render)
-    return `## Escalation: ${input.ticketId}\n\n### Problem Summary\n${input.problemSummary}\n\n### Troubleshooting Steps\n${checklist.map((item) => `- [${item.checked ? 'x' : ' '}] ${item.text}`).join('\n')}\n\n### Current Status\n${input.currentStatus}\n\n### Next Steps\n${input.nextSteps}`;
-  }, [formData, checklist]);
+    let preview = `## Escalation: ${input.ticketId}\n\n### Problem Summary\n${input.problemSummary}\n\n### Troubleshooting Steps\n${checklist.map((item) => `- [${item.checked ? 'x' : ' '}] ${item.text}`).join('\n')}\n\n### Current Status\n${input.currentStatus}\n\n### Next Steps\n${input.nextSteps}`;
+
+    if (llmSummary) {
+      preview += `\n\n### AI Summary\n${llmSummary}\n(Confidence: ${llmConfidence})`;
+    }
+
+    return preview;
+  }, [formData, checklist, llmSummary, llmConfidence]);
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -221,6 +250,50 @@ export default function NewEscalation() {
           </div>
 
           <ChecklistUI items={checklist} onChange={setChecklist} />
+
+          {/* AI Summary Section */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">
+                AI Summary (Optional)
+              </label>
+              <button
+                type="button"
+                onClick={handleGenerateSummary}
+                disabled={generatingSummary || checklist.length === 0 || !formData.problemSummary}
+                className="px-3 py-1 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {generatingSummary ? 'Generating...' : 'Generate AI Summary'}
+              </button>
+            </div>
+
+            {llmError && (
+              <div className="mb-3 p-3 rounded-md bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm">
+                <div className="font-medium">⚠️ LLM unavailable</div>
+                <div className="mt-1 text-yellow-700">{llmError}</div>
+                <div className="mt-1 text-yellow-700">You can still post without an AI summary.</div>
+              </div>
+            )}
+
+            {showLlmSection && llmSummary && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <ConfidenceBadge
+                    level={llmConfidence as 'High' | 'Medium' | 'Low'}
+                    reason={llmConfidenceReason}
+                  />
+                  <span className="text-xs text-gray-500">AI-assisted summary — reviewed by L1 engineer</span>
+                </div>
+                <textarea
+                  value={llmSummary}
+                  onChange={(e) => setLlmSummary(e.target.value)}
+                  rows={6}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                  placeholder="AI-generated summary will appear here..."
+                />
+              </div>
+            )}
+          </div>
 
           <div>
             <label htmlFor="currentStatus" className="block text-sm font-medium text-gray-700 mb-1">
