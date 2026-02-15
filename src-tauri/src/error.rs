@@ -3,7 +3,10 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("Database error: {0}")]
-    Db(#[from] rusqlite::Error),
+    Db(String),
+
+    #[error("Database SQL error: {0}")]
+    DbSql(#[from] rusqlite::Error),
 
     #[error("Jira API error: {0}")]
     Jira(String),
@@ -28,6 +31,9 @@ pub enum AppError {
 
     #[error("HTTP request error: {0}")]
     Http(#[from] reqwest::Error),
+
+    #[error("Keychain error: {0}")]
+    Keychain(String),
 }
 
 impl From<AppError> for String {

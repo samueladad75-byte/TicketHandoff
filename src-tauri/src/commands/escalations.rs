@@ -31,8 +31,7 @@ pub fn render_markdown(input: EscalationInput) -> Result<String, String> {
 }
 
 fn save_escalation_impl(input: EscalationInput) -> AppResult<i64> {
-    let mut db_guard = db::get_connection()?;
-    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+    let conn = db::get_connection()?;
 
     let checklist_json = serde_json::to_string(&input.checklist)
         .map_err(|e| AppError::Validation(format!("Failed to serialize checklist: {}", e)))?;
@@ -73,8 +72,7 @@ fn save_escalation_impl(input: EscalationInput) -> AppResult<i64> {
 }
 
 fn get_escalation_impl(id: i64) -> AppResult<Escalation> {
-    let mut db_guard = db::get_connection()?;
-    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+    let conn = db::get_connection()?;
 
     let escalation = conn.query_row(
         "SELECT id, ticket_id, template_id, problem_summary, checklist, current_status, next_steps,
@@ -109,8 +107,7 @@ fn get_escalation_impl(id: i64) -> AppResult<Escalation> {
 }
 
 fn list_escalations_impl() -> AppResult<Vec<EscalationSummary>> {
-    let mut db_guard = db::get_connection()?;
-    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+    let conn = db::get_connection()?;
 
     let mut stmt = conn.prepare(
         "SELECT id, ticket_id, problem_summary, status, created_at
@@ -134,8 +131,7 @@ fn list_escalations_impl() -> AppResult<Vec<EscalationSummary>> {
 }
 
 fn delete_escalation_impl(id: i64) -> AppResult<()> {
-    let mut db_guard = db::get_connection()?;
-    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+    let conn = db::get_connection()?;
 
     // Delete audit log entries first (FK constraint)
     conn.execute("DELETE FROM audit_log WHERE escalation_id = ?", [id])?;
@@ -153,8 +149,7 @@ fn delete_escalation_impl(id: i64) -> AppResult<()> {
 fn render_markdown_impl(input: EscalationInput) -> AppResult<String> {
     // Fetch template if template_id is provided
     let template = if let Some(template_id) = input.template_id {
-        let mut db_guard = db::get_connection()?;
-        let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+        let conn = db::get_connection()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, name, description, category, checklist_items, l2_team FROM templates WHERE id = ?"
@@ -334,8 +329,7 @@ fn update_escalation_status(
     markdown_output: Option<&str>,
     error_details: Option<&str>,
 ) -> AppResult<()> {
-    let mut db_guard = db::get_connection()?;
-    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+    let conn = db::get_connection()?;
 
     let posted_at = if status == "posted" {
         Some(chrono::Utc::now().to_rfc3339())
@@ -359,8 +353,7 @@ fn update_escalation_status(
 }
 
 fn write_audit_log(escalation_id: i64, action: &str, details: &serde_json::Value) -> AppResult<()> {
-    let mut db_guard = db::get_connection()?;
-    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+    let conn = db::get_connection()?;
 
     conn.execute(
         "INSERT INTO audit_log (escalation_id, action, details) VALUES (?, ?, ?)",

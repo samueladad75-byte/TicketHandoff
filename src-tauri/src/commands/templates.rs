@@ -1,5 +1,5 @@
 use crate::db;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::models::{ChecklistItem, Template};
 
 #[tauri::command]
@@ -13,8 +13,7 @@ pub fn get_template(id: i64) -> Result<Template, String> {
 }
 
 fn list_templates_impl() -> AppResult<Vec<Template>> {
-    let mut db_guard = db::get_connection()?;
-    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+    let conn = db::get_connection()?;
 
     let mut stmt = conn.prepare(
         "SELECT id, name, description, category, checklist_items, l2_team FROM templates ORDER BY category, name"
@@ -40,8 +39,7 @@ fn list_templates_impl() -> AppResult<Vec<Template>> {
 }
 
 fn get_template_impl(id: i64) -> AppResult<Template> {
-    let mut db_guard = db::get_connection()?;
-    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+    let conn = db::get_connection()?;
 
     let mut stmt = conn.prepare(
         "SELECT id, name, description, category, checklist_items, l2_team FROM templates WHERE id = ?"

@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod error;
+mod keychain;
 mod models;
 mod services;
 
@@ -11,31 +12,24 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::new().build())
-        .plugin(tauri_plugin_stronghold::Builder::new(|password| {
-            use argon2::{Argon2, PasswordHasher};
-            use argon2::password_hash::SaltString;
-            let salt = SaltString::from_b64("dGlja2V0LWhhbmRvZmYtc2FsdA").unwrap();
-            let argon2 = Argon2::default();
-            argon2
-                .hash_password(password.as_ref(), &salt)
-                .expect("failed to hash password")
-                .hash
-                .unwrap()
-                .as_bytes()
-                .to_vec()
-        }).build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Initialize database
+            // Initialize database with proper error handling
             let app_data_dir = app.handle().path().app_data_dir()
-                .expect("Failed to get app data directory");
+                .map_err(|e| format!("Cannot access app data directory: {}", e))?;
+
             std::fs::create_dir_all(&app_data_dir)
-                .expect("Failed to create app data directory");
+                .map_err(|e| format!("Cannot create app directory: {}. Check disk permissions.", e))?;
+
             let db_path = app_data_dir.join("tickets.db");
-            db::init_db(db_path.to_str().unwrap())
-                .expect("Failed to initialize database");
+            let db_path_str = db_path.to_str()
+                .ok_or("Invalid database path with non-UTF8 characters")?;
+
+            db::init_db(db_path_str)
+                .map_err(|e| format!("Database initialization failed: {}\n\nPlease restart the app or check permissions.", e))?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -57,5 +51,5 @@ pub fn run() {
             settings::test_jira_connection,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error while running tauri application")
 }
