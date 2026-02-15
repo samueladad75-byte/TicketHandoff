@@ -6,6 +6,7 @@ import ChecklistUI from '../components/ChecklistUI';
 import MarkdownPreview from '../components/MarkdownPreview';
 import ReviewModal from '../components/ReviewModal';
 import { useEscalations } from '../hooks/useEscalations';
+import { useTicketData } from '../hooks/useTicketData';
 import { renderMarkdown } from '../lib/tauri';
 import type { Template, EscalationInput, ChecklistItem } from '../types';
 
@@ -38,6 +39,7 @@ export default function NewEscalation() {
   const [generating, setGenerating] = useState(false);
 
   const { saveEscalation, getEscalation } = useEscalations();
+  const { ticket, loading: fetchingTicket, error: ticketError, fetch: fetchTicket } = useTicketData();
 
   const formData = watch();
 
@@ -57,6 +59,18 @@ export default function NewEscalation() {
       setValue('currentStatus', escalation.currentStatus);
       setValue('nextSteps', escalation.nextSteps);
       setChecklist(escalation.checklist);
+    }
+  };
+
+  // Fetch ticket from Jira
+  const handleFetchFromJira = async () => {
+    const ticketId = formData.ticketId.trim();
+    if (!ticketId) return;
+
+    const result = await fetchTicket(ticketId);
+    if (result) {
+      // Auto-populate problem summary from ticket
+      setValue('problemSummary', result.summary);
     }
   };
 
@@ -141,18 +155,55 @@ export default function NewEscalation() {
       <div className="grid grid-cols-2 gap-6">
         {/* Left Column - Form */}
         <div className="space-y-6">
+          {/* Ticket ID with Fetch button */}
           <div>
             <label htmlFor="ticketId" className="block text-sm font-medium text-gray-700 mb-1">
               Ticket ID *
             </label>
-            <input
-              {...register('ticketId', { required: true })}
-              type="text"
-              id="ticketId"
-              placeholder="e.g., SUPPORT-1234"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+            <div className="flex gap-2">
+              <input
+                {...register('ticketId', { required: true })}
+                type="text"
+                id="ticketId"
+                placeholder="e.g., SUPPORT-1234"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={handleFetchFromJira}
+                disabled={fetchingTicket || !formData.ticketId}
+                className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {fetchingTicket ? 'Fetching...' : 'Fetch from Jira'}
+              </button>
+            </div>
           </div>
+
+          {/* Success message when ticket fetched */}
+          {ticket && !ticketError && (
+            <div className="p-3 rounded-md bg-green-50 border border-green-200 text-green-800 text-sm">
+              <div className="font-medium">✓ Ticket fetched successfully</div>
+              {ticket.reporter && (
+                <div className="mt-1 text-green-700">
+                  Reporter: {ticket.reporter.displayName}
+                  {ticket.reporter.email && ` (${ticket.reporter.email})`}
+                </div>
+              )}
+              {ticket.status && (
+                <div className="mt-1 text-green-700">Status: {ticket.status}</div>
+              )}
+            </div>
+          )}
+
+          {/* Error message when fetch fails */}
+          {ticketError && (
+            <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-800 text-sm">
+              <div className="font-medium">Could not fetch ticket: {ticketError}</div>
+              <div className="mt-1 text-red-700">
+                You can still fill out the form manually.
+              </div>
+            </div>
+          )}
 
           <TemplateSelector value={formData.templateId} onChange={handleTemplateChange} />
 
@@ -226,9 +277,14 @@ export default function NewEscalation() {
       {showReviewModal && (
         <ReviewModal
           markdown={markdown}
+          ticketId={formData.ticketId}
           onConfirm={handleSaveDraft}
           onCancel={() => setShowReviewModal(false)}
           onEdit={() => setShowReviewModal(false)}
+          onPostSuccess={() => {
+            setShowReviewModal(false);
+            navigate('/history');
+          }}
         />
       )}
     </div>

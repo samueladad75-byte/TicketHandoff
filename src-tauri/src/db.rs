@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use crate::models::{ChecklistItem, Template};
+use crate::models::{ApiConfig, ChecklistItem};
 use rusqlite::{Connection, params};
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
@@ -73,6 +73,51 @@ pub fn seed_templates() -> AppResult<()> {
 
 pub fn get_connection() -> AppResult<std::sync::MutexGuard<'static, Option<Connection>>> {
     Ok(DB_CONNECTION.lock().unwrap())
+}
+
+pub fn save_api_config(config: &ApiConfig) -> AppResult<()> {
+    let mut db_guard = get_connection()?;
+    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+
+    // Use INSERT OR REPLACE with id=1 to ensure only one config exists
+    conn.execute(
+        "INSERT OR REPLACE INTO api_config (id, jira_base_url, jira_email, jira_api_token, ollama_endpoint, ollama_model, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, datetime('now'))",
+        params![
+            config.jira_base_url,
+            config.jira_email,
+            config.jira_api_token,
+            config.ollama_endpoint,
+            config.ollama_model,
+        ],
+    )?;
+
+    Ok(())
+}
+
+pub fn get_api_config() -> AppResult<Option<ApiConfig>> {
+    let mut db_guard = get_connection()?;
+    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+
+    let result = conn.query_row(
+        "SELECT jira_base_url, jira_email, jira_api_token, ollama_endpoint, ollama_model FROM api_config WHERE id = 1",
+        [],
+        |row| {
+            Ok(ApiConfig {
+                jira_base_url: row.get(0)?,
+                jira_email: row.get(1)?,
+                jira_api_token: row.get(2)?,
+                ollama_endpoint: row.get(3)?,
+                ollama_model: row.get(4)?,
+            })
+        },
+    );
+
+    match result {
+        Ok(config) => Ok(Some(config)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(AppError::Db(e)),
+    }
 }
 
 #[cfg(test)]

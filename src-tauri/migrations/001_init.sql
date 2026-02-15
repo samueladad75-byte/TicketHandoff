@@ -33,6 +33,16 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS api_config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    jira_base_url TEXT NOT NULL,
+    jira_email TEXT NOT NULL,
+    jira_api_token TEXT NOT NULL,
+    ollama_endpoint TEXT NOT NULL DEFAULT 'http://localhost:11434',
+    ollama_model TEXT NOT NULL DEFAULT 'llama3',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_escalations_ticket_id ON escalations(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_escalations_created_at ON escalations(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_log_escalation ON audit_log(escalation_id);

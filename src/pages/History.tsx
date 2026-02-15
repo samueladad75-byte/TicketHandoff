@@ -1,20 +1,34 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useEscalations } from '../hooks/useEscalations';
+import { getApiConfig } from '../lib/tauri';
 import type { EscalationSummary } from '../types';
 
 export default function History() {
   const navigate = useNavigate();
   const [escalations, setEscalations] = useState<EscalationSummary[]>([]);
+  const [jiraBaseUrl, setJiraBaseUrl] = useState<string>('');
   const { listEscalations, deleteEscalation, loading } = useEscalations();
 
   useEffect(() => {
     loadEscalations();
+    loadConfig();
   }, []);
 
   const loadEscalations = async () => {
     const result = await listEscalations();
     setEscalations(result);
+  };
+
+  const loadConfig = async () => {
+    try {
+      const config = await getApiConfig();
+      if (config) {
+        setJiraBaseUrl(config.jiraBaseUrl);
+      }
+    } catch (error) {
+      console.error('Failed to load config:', error);
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -140,18 +154,38 @@ export default function History() {
                   {formatDate(escalation.createdAt)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <button
-                    onClick={() => navigate(`/new?id=${escalation.id}`)}
-                    className="text-blue-600 hover:text-blue-900 mr-4"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(escalation.id)}
-                    className="text-red-600 hover:text-red-900"
-                  >
-                    Delete
-                  </button>
+                  <div className="flex justify-end gap-3">
+                    {escalation.status === 'posted' && jiraBaseUrl && (
+                      <a
+                        href={`${jiraBaseUrl}/browse/${escalation.ticketId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-green-600 hover:text-green-900"
+                      >
+                        View on Jira
+                      </a>
+                    )}
+                    {escalation.status === 'post_failed' && (
+                      <button
+                        onClick={() => navigate(`/new?id=${escalation.id}`)}
+                        className="text-orange-600 hover:text-orange-900"
+                      >
+                        Retry
+                      </button>
+                    )}
+                    <button
+                      onClick={() => navigate(`/new?id=${escalation.id}`)}
+                      className="text-blue-600 hover:text-blue-900"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(escalation.id)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
