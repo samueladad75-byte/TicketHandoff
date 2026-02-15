@@ -46,6 +46,8 @@ pub fn run() {
             escalations::list_escalations,
             escalations::delete_escalation,
             escalations::render_markdown,
+            escalations::post_escalation,
+            escalations::retry_post_escalation,
             tickets::fetch_jira_ticket,
             tickets::post_to_jira,
             tickets::attach_files_to_jira,

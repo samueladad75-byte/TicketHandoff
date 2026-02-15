@@ -1,7 +1,9 @@
+use crate::commands::settings::get_jira_client;
 use crate::db;
 use crate::error::{AppError, AppResult};
 use crate::models::{Escalation, EscalationInput, EscalationStatus, EscalationSummary};
 use crate::services::template_engine;
+use tauri::AppHandle;
 
 #[tauri::command]
 pub fn save_escalation(input: EscalationInput) -> Result<i64, String> {
@@ -176,4 +178,198 @@ fn render_markdown_impl(input: EscalationInput) -> AppResult<String> {
     };
 
     template_engine::render_markdown(template.as_ref(), &input)
+}
+
+#[tauri::command]
+pub async fn post_escalation(
+    app: AppHandle,
+    id: i64,
+    file_paths: Vec<String>,
+) -> Result<(), String> {
+    post_escalation_impl(app, id, file_paths)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn retry_post_escalation(
+    app: AppHandle,
+    id: i64,
+    file_paths: Vec<String>,
+) -> Result<(), String> {
+    retry_post_escalation_impl(app, id, file_paths)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn post_escalation_impl(
+    app: AppHandle,
+    id: i64,
+    file_paths: Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Load escalation
+    let escalation = get_escalation_impl(id)?;
+
+    // Render markdown
+    let input = EscalationInput {
+        ticket_id: escalation.ticket_id.clone(),
+        template_id: escalation.template_id,
+        problem_summary: escalation.problem_summary.clone(),
+        checklist: escalation.checklist.clone(),
+        current_status: escalation.current_status.clone(),
+        next_steps: escalation.next_steps.clone(),
+        llm_summary: escalation.llm_summary.clone(),
+        llm_confidence: escalation.llm_confidence.clone(),
+    };
+    let markdown = render_markdown_impl(input)?;
+
+    // Get Jira client
+    let client = get_jira_client(app).await?;
+
+    // Post comment
+    match client.post_comment(&escalation.ticket_id, &markdown).await {
+        Ok(_) => {},
+        Err(e) => {
+            // Update status to post_failed
+            update_escalation_status(id, "post_failed", Some(&markdown), Some(&e.to_string()))?;
+            return Err(e.into());
+        }
+    }
+
+    // Upload attachments
+    let mut failed_files = Vec::new();
+    for file_path in &file_paths {
+        let path = std::path::Path::new(file_path);
+        if let Err(e) = client.attach_file(&escalation.ticket_id, path).await {
+            failed_files.push(format!("{}: {}", file_path, e));
+        }
+    }
+
+    if !failed_files.is_empty() {
+        let error_msg = format!("Failed to attach {} file(s):\n{}", failed_files.len(), failed_files.join("\n"));
+        update_escalation_status(id, "post_failed", Some(&markdown), Some(&error_msg))?;
+        return Err(error_msg.into());
+    }
+
+    // Update status to posted
+    update_escalation_status(id, "posted", Some(&markdown), None)?;
+
+    // Write audit log
+    write_audit_log(id, "posted", &serde_json::json!({
+        "ticket_id": escalation.ticket_id,
+        "files_attached": file_paths.len(),
+        "had_llm_summary": escalation.llm_summary.is_some(),
+    }))?;
+
+    Ok(())
+}
+
+async fn retry_post_escalation_impl(
+    app: AppHandle,
+    id: i64,
+    file_paths: Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Load escalation
+    let escalation = get_escalation_impl(id)?;
+
+    // Use existing markdown if available, otherwise render
+    let markdown = if let Some(existing_markdown) = escalation.markdown_output {
+        existing_markdown
+    } else {
+        let input = EscalationInput {
+            ticket_id: escalation.ticket_id.clone(),
+            template_id: escalation.template_id,
+            problem_summary: escalation.problem_summary.clone(),
+            checklist: escalation.checklist.clone(),
+            current_status: escalation.current_status.clone(),
+            next_steps: escalation.next_steps.clone(),
+            llm_summary: escalation.llm_summary.clone(),
+            llm_confidence: escalation.llm_confidence.clone(),
+        };
+        render_markdown_impl(input)?
+    };
+
+    // Get Jira client
+    let client = get_jira_client(app).await?;
+
+    // Post comment
+    match client.post_comment(&escalation.ticket_id, &markdown).await {
+        Ok(_) => {},
+        Err(e) => {
+            update_escalation_status(id, "post_failed", Some(&markdown), Some(&e.to_string()))?;
+            return Err(e.into());
+        }
+    }
+
+    // Upload attachments
+    let mut failed_files = Vec::new();
+    for file_path in &file_paths {
+        let path = std::path::Path::new(file_path);
+        if let Err(e) = client.attach_file(&escalation.ticket_id, path).await {
+            failed_files.push(format!("{}: {}", file_path, e));
+        }
+    }
+
+    if !failed_files.is_empty() {
+        let error_msg = format!("Failed to attach {} file(s):\n{}", failed_files.len(), failed_files.join("\n"));
+        update_escalation_status(id, "post_failed", Some(&markdown), Some(&error_msg))?;
+        return Err(error_msg.into());
+    }
+
+    // Update status to posted
+    update_escalation_status(id, "posted", Some(&markdown), None)?;
+
+    // Write audit log
+    write_audit_log(id, "retry_posted", &serde_json::json!({
+        "ticket_id": escalation.ticket_id,
+        "files_attached": file_paths.len(),
+    }))?;
+
+    Ok(())
+}
+
+fn update_escalation_status(
+    id: i64,
+    status: &str,
+    markdown_output: Option<&str>,
+    error_details: Option<&str>,
+) -> AppResult<()> {
+    let mut db_guard = db::get_connection()?;
+    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+
+    let posted_at = if status == "posted" {
+        Some(chrono::Utc::now().to_rfc3339())
+    } else {
+        None
+    };
+
+    conn.execute(
+        "UPDATE escalations SET status = ?, markdown_output = ?, posted_at = ?, updated_at = datetime('now') WHERE id = ?",
+        rusqlite::params![status, markdown_output, posted_at, id],
+    )?;
+
+    // Write audit log for status change
+    if let Some(error) = error_details {
+        write_audit_log(id, status, &serde_json::json!({
+            "error": error,
+        }))?;
+    }
+
+    Ok(())
+}
+
+fn write_audit_log(escalation_id: i64, action: &str, details: &serde_json::Value) -> AppResult<()> {
+    let mut db_guard = db::get_connection()?;
+    let conn = db_guard.as_mut().ok_or(AppError::Db(rusqlite::Error::InvalidQuery))?;
+
+    conn.execute(
+        "INSERT INTO audit_log (escalation_id, action, details) VALUES (?, ?, ?)",
+        rusqlite::params![
+            escalation_id,
+            action,
+            serde_json::to_string(details).unwrap_or_default(),
+        ],
+    )?;
+
+    Ok(())
 }

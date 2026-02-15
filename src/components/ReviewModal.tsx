@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { postToJira, attachFilesToJira } from '../lib/tauri';
+import { postEscalation } from '../lib/tauri';
 
 interface ReviewModalProps {
   markdown: string;
@@ -10,6 +10,7 @@ interface ReviewModalProps {
   onCancel: () => void;
   onEdit: () => void;
   onPostSuccess?: () => void;
+  onSaveAndPost?: () => Promise<number | null>; // Save escalation and return ID
 }
 
 export default function ReviewModal({
@@ -20,6 +21,7 @@ export default function ReviewModal({
   onCancel,
   onEdit,
   onPostSuccess,
+  onSaveAndPost,
 }: ReviewModalProps) {
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
@@ -33,20 +35,26 @@ export default function ReviewModal({
   };
 
   const handlePostToJira = async () => {
+    if (!onSaveAndPost) {
+      setPostError('Save callback not provided');
+      return;
+    }
+
     setPosting(true);
     setPostError(null);
     setUploadProgress('');
     try {
-      // Step 1: Post comment
-      setUploadProgress('Posting comment...');
-      await postToJira(ticketId, markdown);
-
-      // Step 2: Upload attachments if any
-      if (attachedFiles.length > 0) {
-        setUploadProgress(`Uploading ${attachedFiles.length} file(s)...`);
-        const filePaths = attachedFiles.map(f => f.path);
-        await attachFilesToJira(ticketId, filePaths);
+      // Step 1: Save escalation and get ID
+      setUploadProgress('Saving escalation...');
+      const escalationId = await onSaveAndPost();
+      if (!escalationId) {
+        throw new Error('Failed to save escalation');
       }
+
+      // Step 2: Post to Jira (comment + attachments)
+      setUploadProgress('Posting to Jira...');
+      const filePaths = attachedFiles.map(f => f.path);
+      await postEscalation(escalationId, filePaths);
 
       setPostSuccess(true);
       setUploadProgress('');

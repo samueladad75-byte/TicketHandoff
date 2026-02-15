@@ -22,6 +22,10 @@ export const listEscalations = () => invoke<EscalationSummary[]>('list_escalatio
 export const deleteEscalation = (id: number) => invoke<void>('delete_escalation', { id });
 export const renderMarkdown = (input: EscalationInput) =>
   invoke<string>('render_markdown', { input });
+export const postEscalation = (id: number, filePaths: string[]) =>
+  invoke<void>('post_escalation', { id, filePaths });
+export const retryPostEscalation = (id: number, filePaths: string[]) =>
+  invoke<void>('retry_post_escalation', { id, filePaths });
 
 // Tickets
 export const fetchJiraTicket = (ticketId: string) =>

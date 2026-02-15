@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useEscalations } from '../hooks/useEscalations';
-import { getApiConfig } from '../lib/tauri';
+import { getApiConfig, retryPostEscalation } from '../lib/tauri';
 import type { EscalationSummary } from '../types';
 
 export default function History() {
   const navigate = useNavigate();
   const [escalations, setEscalations] = useState<EscalationSummary[]>([]);
   const [jiraBaseUrl, setJiraBaseUrl] = useState<string>('');
+  const [retrying, setRetrying] = useState<number | null>(null);
   const { listEscalations, deleteEscalation, loading } = useEscalations();
 
   useEffect(() => {
@@ -37,6 +38,21 @@ export default function History() {
       if (success) {
         loadEscalations();
       }
+    }
+  };
+
+  const handleRetry = async (id: number) => {
+    setRetrying(id);
+    try {
+      // Retry with no file attachments (files would need to be re-selected)
+      await retryPostEscalation(id, []);
+      alert('Successfully posted to Jira!');
+      loadEscalations();
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      alert('Retry failed: ' + errorMsg);
+    } finally {
+      setRetrying(null);
     }
   };
 
@@ -167,10 +183,11 @@ export default function History() {
                     )}
                     {escalation.status === 'post_failed' && (
                       <button
-                        onClick={() => navigate(`/new?id=${escalation.id}`)}
-                        className="text-orange-600 hover:text-orange-900"
+                        onClick={() => handleRetry(escalation.id)}
+                        disabled={retrying === escalation.id}
+                        className="text-orange-600 hover:text-orange-900 disabled:opacity-50"
                       >
-                        Retry
+                        {retrying === escalation.id ? 'Retrying...' : 'Retry'}
                       </button>
                     )}
                     <button

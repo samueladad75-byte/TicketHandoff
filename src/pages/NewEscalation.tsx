@@ -195,6 +195,27 @@ export default function NewEscalation() {
     }
   };
 
+  const handleSaveAndPost = async (): Promise<number | null> => {
+    const input: EscalationInput = {
+      ticketId: formData.ticketId,
+      templateId: formData.templateId,
+      problemSummary: formData.problemSummary,
+      checklist,
+      currentStatus: formData.currentStatus,
+      nextSteps: formData.nextSteps,
+      llmSummary: llmSummary || null,
+      llmConfidence: llmConfidence || null,
+    };
+
+    try {
+      const id = await saveEscalation(input);
+      return id;
+    } catch (error) {
+      console.error('Failed to save escalation:', error);
+      return null;
+    }
+  };
+
   // Real-time markdown preview (debounced)
   const livePreview = useMemo(() => {
     if (!formData.ticketId) return '';
@@ -437,6 +458,7 @@ export default function NewEscalation() {
           onConfirm={handleSaveDraft}
           onCancel={() => setShowReviewModal(false)}
           onEdit={() => setShowReviewModal(false)}
+          onSaveAndPost={handleSaveAndPost}
           onPostSuccess={() => {
             setShowReviewModal(false);
             navigate('/history');
